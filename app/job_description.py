@@ -1,98 +1,87 @@
-from groq.types.chat import (ChatCompletionUserMessageParam, ChatCompletionSystemMessageParam)
-from app.client import client, model
-from pydantic import BaseModel
 
-class jobD (BaseModel):
+import json
+
+from groq.types.chat import (
+    ChatCompletionUserMessageParam,
+    ChatCompletionSystemMessageParam,
+)
+from pydantic import BaseModel, Field
+
+from app.client import client, model
+
+
+class JobD(BaseModel):
     role: str
-    required_skills: list[str] = []
-    preferred_skills: list[str] = []
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
     minimum_education: str
     minimum_experience: str | None = None
     responsibilities: str
 
-job_schema = jobD.model_json_schema()
+
+job_schema = JobD.model_json_schema()
 
 response_format = {
     "type": "json_object"
 }
 
-system_prompt = f"""
-You are an expert HR assistant.
 
-Your job is to analyze job descriptions and extract
-structured information from them.
+def parse_job_description(job_description: str) -> JobD:
+    """Extract structured information from a dynamic job description."""
 
-Return ONLY valid JSON matching this schema:
+    if not job_description.strip():
+        raise ValueError("Job description cannot be empty.")
 
-{job_schema}
-IMPORTANT:
-Do NOT return the schema itself.
-Do NOT return fields like "properties", "title" or "type".
-Fill the schema with actual information extracted from the job description.
+    system_prompt = f"""
+    You are an expert HR assistant.
 
-If minimum experience is not mentioned, return null.
-If information for a list is missing, return an empty list.
-Do not invent information.
-"""
+    Analyze job descriptions and extract structured information.
 
-job_description = f"""
-Description
-Do you want to solve real customer problems through innovative technology? Do you enjoy working on scalable services in a collaborative team environment? Do you want to see your code directly impact millions of customers worldwide?
+    Return ONLY valid JSON matching this schema:
 
-At Amazon, we hire the best minds in technology to innovate and build on behalf of our customers. Customer obsession is part of our company DNA, which has made us one of the world's most beloved brands.
+    {job_schema}
 
-Our Software Development Engineers (SDEs) use modern technology to solve complex problems while seeing their work's impact first-hand. The challenges SDEs solve at Amazon are meaningful and influence millions of customers, sellers, and products globally. We seek individuals passionate about creating new products, features, and services while managing ambiguity in an environment where development cycles are measured in weeks, not years.
+    IMPORTANT:
+    Do NOT return the schema itself.
+    Do NOT return fields like "properties", "title" or "type".
+    Fill the schema with actual information extracted from the job description.
 
-At Amazon, we believe in ownership at every level. As an SDE-I, you'll own the entire lifecycle of your code - from design through deployment and ongoing operations. This ownership mindset, combined with our commitment to operational excellence, ensures we deliver the highest quality solutions for our customers.
+    If minimum experience is not mentioned, return null.
+    If information for a list is missing, return an empty list.
+    Do not invent information.
+    """
 
-We're looking for curious minds who think big and want to define tomorrow's technology. At Amazon, you'll grow into the high-impact engineer you know you can be, supported by a culture of learning and mentorship. Every day brings exciting new challenges and opportunities for personal growth.
-Key job responsibilities
-• Collaborate and communicate effectively with experienced cross-disciplinary Amazonians to design, build, and operate innovative products and services that delight our customers, while participating in technical discussions to drive solutions forward.
-• Design and develop scalable solutions using cloud-native architectures and microservices in a large distributed computing environment.
-• Participate in code reviews and contribute to technical documentation.
-• Build and maintain resilient distributed systems that are scalable, fault-tolerant, and cost-effective.
-• Leverage and contribute to the development of GenAI and AI-powered tools to enhance development productivity while staying current with emerging technologies.
-• Write clean, maintainable code following best practices and design patterns.
-• Work in an agile environment practicing CI/CD principles while participating in operational responsibilities including on-call duties.
-• Demonstrate operational excellence through monitoring, troubleshooting, and resolving production issues.
-Basic Qualifications
-- Experience with at least one general-purpose programming language such as Java, Python, C++, C#, Go, Rust, or TypeScript
-- Experience with data structure implementation, basic algorithm development, and/or object-oriented design principles
-- Currently has, or is in the process of obtaining a bachelor’s degree in Computer Science, Computer Engineering, Data Science, Information Systems, or related STEM fields
-- Must be 18 years of age of older
-Preferred Qualifications
-- Experience from previous technical internship(s) or demonstrated project experience
-- Experience with one or more of the following: AI tools for development productivity, Cloud platforms (preferably AWS), Database systems (SQL and NoSQL), Contributing to open-source projects, Version control systems, Debugging and troubleshooting complex systems
-- Demonstrated ability to learn and adapt to new technologies quickly
-- Basic understanding of software development lifecycle (SDLC)
-- Strong problem-solving and analytical skills
-- Excellent written and verbal communication skills
-"""
+    user_prompt = f"""
+    Analyze the following job description:
 
-user_prompt = f"""
-Analyze the following job description:
+    {job_description}
+    """
 
-{job_description}
-"""
+    sys_msg: ChatCompletionSystemMessageParam = {
+        "role": "system",
+        "content": system_prompt
+    }
 
-sys_msg: ChatCompletionSystemMessageParam = {
-    "role": "system",
-    "content": system_prompt
-}
-user_msg: ChatCompletionUserMessageParam = {
-    "role" : "user",
-    "content": user_prompt
-}
+    user_msg: ChatCompletionUserMessageParam = {
+        "role": "user",
+        "content": user_prompt
+    }
 
-messages = [sys_msg, user_msg]
+    messages = [sys_msg, user_msg]
 
-response = client.chat.completions.create(model=model, messages=messages, response_format=response_format)
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        response_format=response_format
+    )
 
-answer = response.choices[0].message.content
+    answer = response.choices[0].message.content
 
-import json
+    if not answer:
+        raise ValueError("The LLM returned an empty response.")
 
-raw_json = json.loads(answer)
-job_parsed = jobD(**raw_json)
+    raw_json = json.loads(answer)
 
-# print(job_parsed.model_dump_json(indent=3))
+    job_parsed = JobD(**raw_json)
+
+    return job_parsed
