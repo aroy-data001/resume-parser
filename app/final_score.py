@@ -1,5 +1,4 @@
 from app.client import client, model
-from app.job_description import job_parsed
 from app.resume_structure import MatchScore
 import json
 
